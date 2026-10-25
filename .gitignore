@@ -1,0 +1,7 @@
+# Claves y configuración local: nunca al repositorio
+.env
+deploy/.env
+*.local
+
+__pycache__/
+*.pyc

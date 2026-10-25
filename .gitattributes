@@ -1,0 +1,5 @@
+# Finales de línea LF en todo el repositorio; los scripts fallan con CRLF dentro de Linux
+* text=auto eol=lf
+
+# El verificador es código: que cuente para las estadísticas de lenguajes y para CodeQL
+tools/** linguist-documentation=false

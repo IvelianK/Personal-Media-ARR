@@ -1,0 +1,92 @@
+name: CI
+
+# Prueba langguard, valida el compose de ejemplo y arranca la imagen de langguard endurecida.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Pruebas de langguard
+        working-directory: tools/langguard
+        run: python3 -m unittest -v
+
+  despliegue:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validar compose.yaml con los dos perfiles
+        working-directory: deploy
+        run: |
+          cp .env.example .env
+          docker compose --profile local --profile nube config --quiet
+
+      # Arranca langguard desde el propio compose.yaml: mismas restricciones que en producción
+      - name: Arrancar langguard con el compose y comprobar que responde
+        working-directory: deploy
+        run: |
+          set -eu
+          mkdir -p /tmp/media
+          sed -i 's|^MEDIA_ROOT=.*|MEDIA_ROOT=/tmp/media|; s|^WEBHOOK_AUTH=.*|WEBHOOK_AUTH=ci:prueba|' .env
+          docker compose up -d --build langguard
+          get() { docker compose exec -T langguard wget -q -O - "$@" http://127.0.0.1:8080/sonarr 2>&1 || true; }
+          for i in $(seq 1 20); do
+            docker compose exec -T langguard wget -q -O - http://127.0.0.1:8080/ 2>/dev/null | grep -q ok && break
+            sleep 1
+          done
+          docker compose exec -T langguard wget -q -O - http://127.0.0.1:8080/ | grep -q ok
+          get --post-data='{"eventType":"Test"}' | grep -q "401"
+          docker compose exec -T langguard wget -q -O - --post-data='{"eventType":"Test"}' \
+            --header="Authorization: Basic $(printf 'ci:prueba' | base64)" http://127.0.0.1:8080/sonarr
+          test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' langguard)" = "true"
+          test "$(docker inspect -f '{{.Config.User}}' langguard)" = "568:568"
+          docker compose exec -T langguard ffprobe -version >/dev/null
+          sleep 1
+          docker compose logs langguard | grep -q "webhook de prueba recibido"
+          echo "Todo correcto"
+
+      - name: Registro del contenedor
+        if: always()
+        working-directory: deploy
+        run: docker compose logs langguard || true
+
+  secretos:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Red de seguridad además del escaneo de secretos de GitHub: ningún .env real ni clave en el árbol
+      - name: Sin ficheros .env ni claves en el repositorio
+        run: |
+          set -eu
+          if git ls-files | grep -E '(^|/)\.env$'; then echo "Hay un .env versionado"; exit 1; fi
+          if git grep -nE '(api_key|apikey|API_KEY|token|password)["'"'"' ]*[:=]["'"'"' ]*[A-Za-z0-9]{24,}' -- . ':!*.md'; then
+            echo "Posible clave en el código"; exit 1
+          fi
+          echo "Sin secretos a la vista"

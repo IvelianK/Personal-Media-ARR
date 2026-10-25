@@ -1,0 +1,159 @@
+# Stack multimedia: Prowlarr, Sonarr, Radarr, Bazarr, Jellyfin, Seerr y langguard.
+# Uso:
+#   cp .env.example .env    # y rellénalo
+#   docker compose --profile local up -d    # descarga con qBittorrent en el propio servidor
+#   docker compose --profile nube up -d     # descarga con un servicio en la nube vía Decypharr
+#
+# Todos los contenedores montan MEDIA_ROOT en /data: misma ruta en todos, así los movimientos
+# son renombrados instantáneos y los enlaces simbólicos resuelven igual en cada app.
+# Los puertos solo escuchan en BIND (127.0.0.1 por defecto); pon un proxy inverso con TLS delante.
+
+x-base: &base
+  restart: unless-stopped
+  networks: [media]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-lsio-env: &lsio-env
+  PUID: ${PUID:-568}
+  PGID: ${PGID:-568}
+  TZ: ${TZ:-Europe/Madrid}
+
+services:
+  prowlarr:
+    <<: *base
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment: *lsio-env
+    ports: ["${BIND:-127.0.0.1}:9696:9696"]
+    volumes:
+      - ${MEDIA_ROOT}/config/prowlarr:/config
+
+  sonarr:
+    <<: *base
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment: *lsio-env
+    ports: ["${BIND:-127.0.0.1}:8989:8989"]
+    volumes:
+      - ${MEDIA_ROOT}/config/sonarr:/config
+      - ${MEDIA_ROOT}:/data:rslave
+
+  radarr:
+    <<: *base
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment: *lsio-env
+    ports: ["${BIND:-127.0.0.1}:7878:7878"]
+    volumes:
+      - ${MEDIA_ROOT}/config/radarr:/config
+      - ${MEDIA_ROOT}:/data:rslave
+
+  bazarr:
+    <<: *base
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment: *lsio-env
+    ports: ["${BIND:-127.0.0.1}:6767:6767"]
+    volumes:
+      - ${MEDIA_ROOT}/config/bazarr:/config
+      - ${MEDIA_ROOT}:/data:rslave
+
+  jellyfin:
+    <<: *base
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    user: "${PUID:-568}:${PGID:-568}"
+    # GID del grupo "render" del host, para la aceleración por hardware (getent group render)
+    group_add: ["${RENDER_GID:-107}"]
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      JELLYFIN_PublishedServerUrl: ${JELLYFIN_URL:-}
+    # Jellyfin escucha en la red local: las apps de TV buscan el servidor ahí
+    ports: ["${JELLYFIN_BIND:-127.0.0.1}:8096:8096"]
+    # Aceleración por hardware: descomenta si el host tiene /dev/dri (gráfica AMD o Intel)
+    # devices: [/dev/dri:/dev/dri]
+    volumes:
+      - ${MEDIA_ROOT}/config/jellyfin:/config
+      - ${MEDIA_ROOT}/cache/jellyfin:/cache
+      - ${MEDIA_ROOT}:/data:rslave
+
+  seerr:
+    <<: *base
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
+    user: "${PUID:-568}:${PGID:-568}"
+    init: true
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+    ports: ["${BIND:-127.0.0.1}:5055:5055"]
+    volumes:
+      - ${MEDIA_ROOT}/config/seerr:/app/config
+
+  langguard:
+    <<: *base
+    build: ../tools/langguard
+    image: langguard:local
+    container_name: langguard
+    user: "${PUID:-568}:${PGID:-568}"
+    read_only: true
+    cap_drop: [ALL]
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
+      RADARR_API_KEY: ${RADARR_API_KEY:-}
+      SONARR_URL: ${SONARR_URL:-http://sonarr:8989}
+      RADARR_URL: ${RADARR_URL:-http://radarr:7878}
+      DOWNLOADS: ${DOWNLOADS:-/data/descargas}
+      LANG_DEFAULT: ${LANG_DEFAULT:-spa}
+      LANG_BY_ROOT: ${LANG_BY_ROOT:-/data/biblioteca/anime/=jpn}
+      RESCUE_INTERVAL: ${RESCUE_INTERVAL:-600}
+      WEBHOOK_AUTH: ${WEBHOOK_AUTH:-}
+    # Solo lee: los ficheros los mueven Sonarr y Radarr por su API
+    volumes:
+      - ${MEDIA_ROOT}:/data:ro,rslave
+
+  # Perfil "local": descarga en el disco del servidor
+  qbittorrent:
+    <<: *base
+    profiles: [local]
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      <<: *lsio-env
+      WEBUI_PORT: "8080"
+    ports: ["${BIND:-127.0.0.1}:8080:8080"]
+    volumes:
+      - ${MEDIA_ROOT}/config/qbittorrent:/config
+      - ${MEDIA_ROOT}:/data
+
+  # Perfil "nube": Decypharr imita la API de qBittorrent y monta el servicio en la nube por FUSE
+  decypharr:
+    <<: *base
+    profiles: [nube]
+    image: cy01/blackhole:latest
+    container_name: decypharr
+    # Sin init, una parada con lecturas FUSE en curso deja el proceso zombi y el montaje colgado
+    init: true
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      PUID: ${PUID:-568}
+      PGID: ${PGID:-568}
+    ports: ["${BIND:-127.0.0.1}:8282:8282"]
+    volumes:
+      - ${MEDIA_ROOT}/config/decypharr:/app
+      - ${MEDIA_ROOT}:/data:rshared
+      - ${MEDIA_ROOT}/cache/decypharr:/cache
+    devices: [/dev/fuse:/dev/fuse:rwm]
+    cap_add: [SYS_ADMIN]
+    # Sin no-new-privileges: el montaje FUSE como usuario normal pasa por fusermount, que es setuid
+    security_opt: [apparmor:unconfined]
+    # Los contenedores sin IPv6 que reciben registros AAAA se quedan esperando: solo IPv4
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+
+networks:
+  media:
+    name: media
