@@ -99,7 +99,7 @@ Con el mismo perfil que usaste al arrancar, para que también se actualice el cl
 docker compose --profile local pull --ignore-buildable && docker compose --profile local up -d --build
 ```
 
-Fija versiones en lugar de `latest` si prefieres actualizar a mano: Dependabot propondrá los cambios en tu fork.
+Para despliegues reproducibles, fija las imágenes por versión o digest y revísalas periódicamente antes de actualizar. El Dependabot de este repositorio vigila el Dockerfile de `langguard` y las acciones de GitHub; no actualiza las imágenes de este `compose.yaml`.
 
 ## Desmontarlo todo
 
