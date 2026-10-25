@@ -25,4 +25,4 @@ Este repositorio no aloja, enlaza ni indexa contenido protegido por derechos de 
 ## Fuera de alcance
 
 - Configuraciones que el propio usuario decida exponer a internet en contra de lo que recomienda [la guía de seguridad](docs/07-seguridad.md).
-- Vulnerabilidades de las imágenes de terceros que referencia `deploy/compose.yaml`. Dependabot propone las actualizaciones; el aviso va al proyecto de origen.
+- Vulnerabilidades de las imágenes de terceros que referencia `deploy/compose.yaml`. Comunícalas al proyecto de origen y revisa sus avisos de seguridad antes de actualizar el ejemplo.
