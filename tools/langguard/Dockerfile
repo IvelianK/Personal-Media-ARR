@@ -1,6 +1,6 @@
 # langguard: verificador de idioma y rescate de importaciones para Sonarr y Radarr
 # Fijada por digest; Dependabot la mantiene al día
-FROM python:3.13-alpine@sha256:bf12ecc0bea3f171d55145dd02c78b5eeb09f30ee2ac9cc2b4c9e4e8f5e30741
+FROM python:3.15-alpine@sha256:d44b1254cb92329418d164b22b20d86bbd3869d48e80e09e476531a409a728bb
 
 LABEL org.opencontainers.image.title="langguard" \
       org.opencontainers.image.source="https://github.com/IvelianK/Personal-Media-ARR" \
